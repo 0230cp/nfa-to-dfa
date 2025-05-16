@@ -1,0 +1,35 @@
+(ε-)NFA 구성 요소
+StateSet = {'q000', 'q001'}
+TerminalSet = {'1', '0'}
+StartState = q000
+FinalStateSet = {'q001'}
+DeltaFunctions = {
+  (q000, 0) = {'q000', 'q001'}
+  (q000, 1) = {'q000'}
+  (q001, 0) = set()
+  (q001, 1) = {'q000', 'q001'}
+}
+
+DFA 구성 요소
+StateSet = {frozenset({'q000'}), frozenset({'q000', 'q001'})}
+TerminalSet = {'1', '0'}
+StartState = frozenset({'q000'})
+FinalStateSet = {frozenset({'q000', 'q001'})}
+DeltaFunctions = {
+  (frozenset({'q000'}), 1) = frozenset({'q000'})
+  (frozenset({'q000'}), 0) = frozenset({'q000', 'q001'})
+  (frozenset({'q000', 'q001'}), 1) = frozenset({'q000', 'q001'})
+  (frozenset({'q000', 'q001'}), 0) = frozenset({'q000', 'q001'})
+}
+
+Reduced DFA 구성 요소
+StateSet = {'Q1', 'Q0'}
+TerminalSet = {'1', '0'}
+StartState = Q1
+FinalStateSet = {'Q0'}
+DeltaFunctions = {
+  (Q1, 1) = Q1
+  (Q1, 0) = Q0
+  (Q0, 1) = Q0
+  (Q0, 0) = Q0
+}

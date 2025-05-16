@@ -1,7 +1,6 @@
 #.txt 파일 불러오는 함수 ----------------------------------------------------------------------------------
 # 과제 게시물 예제로 출력 test 해봤는데 q005에 대한 처리가 아예 안됨.
 # delta_func에만 등장할 수 있는 state에 대한 처리 로직 추가 해야함.
-
 def load_txt(filepath):
     delta_flag = False
     nfa_states = set()
@@ -31,7 +30,11 @@ def load_txt(filepath):
                     left, right = line.split("=")
                     left = left.strip()[1:-1]
                     state, symbol = [s.strip() for s in left.split(",")]
-                    targets = set(s.strip() for s in right.strip()[1:-1].split(","))
+                    temp = right.strip()[1:-1].strip()
+                    if temp == "":
+                        targets = set()
+                    else:
+                        targets = set(s.strip() for s in right.strip()[1:-1].split(","))
                     nfa_delta_func[(state, symbol)] = targets;
                     nfa_states.add(state)
                     nfa_states.update(targets)
@@ -77,17 +80,18 @@ def epsilon_move(states, nfa_delta_func):
 # DFA start states 구하기 ---------------------------------------------------------------------------
 # 기존 start state가 ε으로 이동할 수 있는 경우가 있기에 항상 check 필요
 # start state는 문장인데 그냥 받으려고 하니 오류가 계속 났음. {}로 감싸서 str을 set으로 받아줘야함
-def get_dfa_start_states(nfa_start_state, nfa_delta_func):
-    dfa_start_states = set(epsilon_move({nfa_start_state}, nfa_delta_func))
-    return dfa_start_states
+def get_dfa_start_state(nfa_start_state, nfa_delta_func):
+    dfa_start_state = set(epsilon_move({nfa_start_state}, nfa_delta_func))
+    return dfa_start_state
 
 # DFA state 구하기 ----------------------------------------------------------------------------------
 def get_dfa_state(nfa_start_state, nfa_terminal_set, nfa_delta_func):
     from collections import deque 
-    #queue없이 구하기가 너무 어려웠음 특히, symbol을 보면서 넘어가야하는데 for문으로 terminal을 하나씩 탐색하면서 구현해보려 했으나 오류가 많이 나 GPT에게 구조 추천을 받았음
+    #queue없이 구하기가 너무 어려웠음 특히, symbol을 보면서 넘어가야하는데 for문으로 terminal을 하나씩 탐색하면서 
+    # 구현해보려 했으나 오류가 많이 나 GPT에게 구조 추천을 받았음
 
     dfa_states = set()
-    start = frozenset(get_dfa_start_states(nfa_start_state, nfa_delta_func))
+    start = frozenset(get_dfa_start_state(nfa_start_state, nfa_delta_func))
     queue = deque([start])
     dfa_states.add(start)
 
@@ -139,36 +143,120 @@ def get_dfa_final_state(dfa_states, nfa_final_state):
             dfa_final_states.add(state)
     return dfa_final_states
 
-def test_dfa_all(filepath):
-    print(f"\n📄 Loading NFA from file: {filepath}")
-    nfa_states, nfa_terminal_set, nfa_delta_func, nfa_start_state, nfa_final_states = load_txt(filepath)
+# minimize DFA
+# 이제 reduced DFA 구해보자
+# <step1> Delete all inaccessible states
+# <step2> Construct the equivalence relations
+# <step3> Construct fa M'
 
-    print("\n✅ NFA 구성 요소:")
-    print("States:", sorted(nfa_states))
-    print("Terminals:", sorted(nfa_terminal_set))
-    print("Start state:", nfa_start_state)
-    print("Final states:", sorted(nfa_final_states))
-    print("Delta function:")
-    for (s, a), t in nfa_delta_func.items():
-        print(f"  δ({s}, '{a}') = {sorted(t)}")
+# inaccessible states 삭제 함수 ----------------------------------------------------------------------------------
+# 기존 state 구하는 알고리즘과 거의 비슷하게 구현 하지만 reachable를 판단해서 체크하는 구조 추가
+def del_inaccessible_states(dfa_states, dfa_start_state, dfa_terminal_set, dfa_delta_func):
+    from collections import deque
 
-    print("\n🔁 DFA 변환 중...")
-    dfa_states = get_dfa_state(nfa_start_state, nfa_terminal_set, nfa_delta_func)
-    dfa_start = get_dfa_start_states(nfa_start_state, nfa_delta_func)
-    dfa_final = get_dfa_final_state(dfa_states, nfa_final_states)
-    dfa_delta_func = get_dfa_delta_func(dfa_states, nfa_terminal_set, nfa_delta_func)
+    reachable = set()
+    queue = deque([dfa_start_state])
+    reachable.add(dfa_start_state)
 
-    print("\n✅ DFA 구성 요소:")
-    print("Start state:", sorted(dfa_start))
-    print("States:")
-    for s in dfa_states:
-        print(" ", sorted(s))
-    print("Final states:")
-    for s in dfa_final:
-        print(" ", sorted(s))
+    while queue:
+        current = queue.popleft()
+        for symbol in dfa_terminal_set:
+            next_state = dfa_delta_func[(current, symbol)]
+            if next_state and next_state not in reachable:
+                reachable.add(next_state)
+                queue.append(next_state)
 
-    print("\n✅ DFA Delta Function:")
-    for (s, a), t in dfa_delta_func.items():
-        print(f"  δ({sorted(s)}, '{a}') → {sorted(t)}")
+    filtered_states = set()
+    for state in dfa_states:
+        if state in reachable:
+            filtered_states.add(state)
+    
+    filtered_delta_func = {}
+    for(s,symbol),t in dfa_delta_func.items():
+        if s in reachable and t in reachable:
+            filtered_delta_func[(s, symbol)] = t
+    
+    return filtered_states, filtered_delta_func
 
-test_dfa_all("test.txt")
+# Construct the equivalence relations 구현 ----------------------------------------------------------------------------------
+def hopcroft(dfa_states, dfa_terminal_set, dfa_delta_func, dfa_start_state, dfa_final_states):
+    # 초기 분할 : final / non - final 분리
+    P = []
+    F = set(dfa_final_states)
+    NF = set()
+
+    for state in dfa_states:
+        if state not in F:
+            NF.add(state)
+    
+    if F:
+        P.append(F)
+    if NF:
+        P.append(NF)
+
+    W = []
+    if F:
+        W.append(F)
+    if NF:
+        W.append(NF)
+
+    while W:
+        A = W.pop()
+        for symbol in dfa_terminal_set:
+            X = set()
+            for s in dfa_states:
+                if (s, symbol) in dfa_delta_func:
+                    t = dfa_delta_func[(s, symbol)]
+                    if t in A:
+                        X.add(s)
+            
+            new_P = []
+            for Y in P:
+                inter = set()
+                diff = set()
+                for state in Y:
+                    if state in X:
+                        inter.add(state)
+                    else:
+                        diff.add(state)
+
+                if inter and diff:
+                    new_P.append(inter)
+                    new_P.append(diff)
+
+                    if Y in W:
+                        W.remove(Y)
+                        W.append(inter)
+                        W.append(diff)
+                    else:
+                        if len(inter) <= len(diff):
+                            W.append(inter)
+                        else:
+                            W.append(diff)
+                else:
+                    new_P.append(Y)
+            P = new_P
+    state_name_map = {}
+    count = 0
+    for group in P:
+        name = "Q" + str(count)
+        for state in group:
+            state_name_map[state] = name
+        count += 1
+
+    reduced_states = set()
+    for name in state_name_map.values():
+        reduced_states.add(name)
+    
+    reduced_start_state = state_name_map[dfa_start_state]
+
+    reduced_final_states = set()
+    for s in dfa_final_states:
+        if s in state_name_map:
+            reduced_final_states.add(state_name_map[s])
+    
+    reduced_delta_func = {}
+    for (state, symbol), target in dfa_delta_func.items():
+        reduced_delta_func[(state_name_map[state], symbol)] = state_name_map[target]
+
+    return reduced_states, reduced_start_state, reduced_final_states, reduced_delta_func, state_name_map
